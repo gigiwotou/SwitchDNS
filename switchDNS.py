@@ -102,16 +102,33 @@ class NetworkConfigApp:
     
     def load_configs(self):
         # 加载配置文件
+        # 默认配置
+        default_config = {
+            "profiles": [
+                {
+                    "name": "默认配置",
+                    "interface": "以太网",
+                    "ip": "192.168.1.100",
+                    "subnet": "255.255.255.0",
+                    "gateway": "192.168.1.1",
+                    "dns": "8.8.8.8,114.114.114.114"
+                }
+            ]
+        }
+        
         try:
             import os
             import json
+            
             print(f"开始加载配置文件: {self.config_file}")
+            
             if os.path.exists(self.config_file):
                 print("配置文件存在，开始读取...")
                 try:
                     with open(self.config_file, 'r', encoding='utf-8') as f:
                         self.configs = json.load(f)
                         print(f"配置文件内容: {self.configs}")
+                        
                         # 确保配置格式正确
                         if "profiles" not in self.configs:
                             self.configs["profiles"] = []
@@ -119,37 +136,14 @@ class NetworkConfigApp:
                 except Exception as e:
                     print(f"读取配置文件错误: {e}")
                     # 配置文件格式错误，使用默认配置
-                    self.configs = {
-                        "profiles": [
-                            {
-                                "name": "默认配置",
-                                "interface": "以太网",
-                                "ip": "192.168.1.100",
-                                "subnet": "255.255.255.0",
-                                "gateway": "192.168.1.1",
-                                "dns": "8.8.8.8,114.114.114.114"
-                            }
-                        ]
-                    }
+                    self.configs = default_config
             else:
                 print("配置文件不存在，使用默认配置")
                 # 配置文件不存在，使用默认配置
-                self.configs = {
-                    "profiles": [
-                        {
-                            "name": "默认配置",
-                            "interface": "以太网",
-                            "ip": "192.168.1.100",
-                            "subnet": "255.255.255.0",
-                            "gateway": "192.168.1.1",
-                            "dns": "8.8.8.8,114.114.114.114"
-                        }
-                    ]
-                }
+                self.configs = default_config
+                
                 # 创建默认配置文件
                 try:
-                    import os
-                    import json
                     # 确保目录存在
                     os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
                     with open(self.config_file, 'w', encoding='utf-8') as f:
@@ -160,18 +154,7 @@ class NetworkConfigApp:
         except Exception as e:
             print(f"加载配置文件发生错误: {e}")
             # 任何错误都使用默认配置
-            self.configs = {
-                "profiles": [
-                    {
-                        "name": "默认配置",
-                        "interface": "以太网",
-                        "ip": "192.168.1.100",
-                        "subnet": "255.255.255.0",
-                        "gateway": "192.168.1.1",
-                        "dns": "8.8.8.8,114.114.114.114"
-                    }
-                ]
-            }
+            self.configs = default_config
         print(f"最终配置: {self.configs}")
     
     def save_configs(self):
