@@ -30,12 +30,61 @@ class NetworkConfigApp:
         # 设置图标
         self.setup_icon()
         
-        # 配置文件路径
-        self.config_file = "network_configs.json"
+        # 配置文件路径 - 使用执行文件同目录
+        import os
+        import sys
+        
+        try:
+            # 获取执行文件路径
+            if getattr(sys, 'frozen', False):
+                # 编译为exe的情况
+                exe_path = sys.executable
+                config_dir = os.path.dirname(exe_path)
+            else:
+                # 直接运行Python脚本的情况
+                script_path = os.path.abspath(__file__)
+                config_dir = os.path.dirname(script_path)
+            
+            # 配置文件路径
+            self.config_file = os.path.join(config_dir, "network_configs.json")
+        except:
+            # 如果失败，使用当前目录作为后备
+            config_dir = os.getcwd()
+            self.config_file = os.path.join(config_dir, "network_configs.json")
+        
+        # 确保配置文件存在
+        if not os.path.exists(self.config_file):
+            # 创建默认配置文件
+            default_config = {
+                "profiles": [
+                    {
+                        "name": "默认配置",
+                        "interface": "以太网",
+                        "ip": "192.168.1.100",
+                        "subnet": "255.255.255.0",
+                        "gateway": "192.168.1.1",
+                        "dns": "8.8.8.8,114.114.114.114"
+                    }
+                ]
+            }
+            try:
+                # 确保目录存在
+                os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+                # 写入默认配置
+                import json
+                with open(self.config_file, 'w', encoding='utf-8') as f:
+                    json.dump(default_config, f, ensure_ascii=False, indent=2)
+            except:
+                pass
+        
+        # 加载配置文件
         self.load_configs()
         
         # 创建主界面
         self.create_main_frame()
+        
+        # 应用配置文件中的值到UI界面
+        self.apply_config_from_file()
         
         # 创建系统托盘图标
         self.create_tray_icon()
@@ -53,18 +102,90 @@ class NetworkConfigApp:
     
     def load_configs(self):
         # 加载配置文件
-        if os.path.exists(self.config_file):
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                self.configs = json.load(f)
-        else:
+        try:
+            import os
+            import json
+            print(f"开始加载配置文件: {self.config_file}")
+            if os.path.exists(self.config_file):
+                print("配置文件存在，开始读取...")
+                try:
+                    with open(self.config_file, 'r', encoding='utf-8') as f:
+                        self.configs = json.load(f)
+                        print(f"配置文件内容: {self.configs}")
+                        # 确保配置格式正确
+                        if "profiles" not in self.configs:
+                            self.configs["profiles"] = []
+                            print("配置文件缺少profiles键，添加默认值")
+                except Exception as e:
+                    print(f"读取配置文件错误: {e}")
+                    # 配置文件格式错误，使用默认配置
+                    self.configs = {
+                        "profiles": [
+                            {
+                                "name": "默认配置",
+                                "interface": "以太网",
+                                "ip": "192.168.1.100",
+                                "subnet": "255.255.255.0",
+                                "gateway": "192.168.1.1",
+                                "dns": "8.8.8.8,114.114.114.114"
+                            }
+                        ]
+                    }
+            else:
+                print("配置文件不存在，使用默认配置")
+                # 配置文件不存在，使用默认配置
+                self.configs = {
+                    "profiles": [
+                        {
+                            "name": "默认配置",
+                            "interface": "以太网",
+                            "ip": "192.168.1.100",
+                            "subnet": "255.255.255.0",
+                            "gateway": "192.168.1.1",
+                            "dns": "8.8.8.8,114.114.114.114"
+                        }
+                    ]
+                }
+                # 创建默认配置文件
+                try:
+                    import os
+                    import json
+                    # 确保目录存在
+                    os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+                    with open(self.config_file, 'w', encoding='utf-8') as f:
+                        json.dump(self.configs, f, ensure_ascii=False, indent=2)
+                    print("已创建默认配置文件")
+                except Exception as e:
+                    print(f"创建默认配置文件错误: {e}")
+        except Exception as e:
+            print(f"加载配置文件发生错误: {e}")
+            # 任何错误都使用默认配置
             self.configs = {
-                "profiles": []
+                "profiles": [
+                    {
+                        "name": "默认配置",
+                        "interface": "以太网",
+                        "ip": "192.168.1.100",
+                        "subnet": "255.255.255.0",
+                        "gateway": "192.168.1.1",
+                        "dns": "8.8.8.8,114.114.114.114"
+                    }
+                ]
             }
+        print(f"最终配置: {self.configs}")
     
     def save_configs(self):
         # 保存配置文件
-        with open(self.config_file, 'w', encoding='utf-8') as f:
-            json.dump(self.configs, f, ensure_ascii=False, indent=2)
+        try:
+            import os
+            # 确保目录存在
+            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                import json
+                json.dump(self.configs, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            # 保存失败，忽略错误
+            pass
     
     def create_main_frame(self):
         # 创建主框架
@@ -87,7 +208,7 @@ class NetworkConfigApp:
         self.interface_var = tk.StringVar()
         self.interface_combo = ttk.Combobox(interface_frame, textvariable=self.interface_var, width=30)
         self.interface_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-        self.update_interfaces()
+        # 不在这里调用update_interfaces()，而是在apply_config_from_file中调用
         
         # IP地址
         ip_frame = ttk.Frame(form_frame)
@@ -249,11 +370,28 @@ class NetworkConfigApp:
             messagebox.showerror("错误", "请输入IP地址")
             return
         
+        # 检查IP和网关是否相同
+        if gateway and ip == gateway:
+            messagebox.showerror("错误", "IP地址和网关不能相同，请修改配置")
+            return
+        
         try:
-            # 设置IP地址和子网掩码
-            subprocess.run(["netsh", "interface", "ipv4", "set", "address", 
-                          "name=" + interface, "static", ip, subnet, gateway, "1"], 
-                         check=True, capture_output=True)
+            # 打印调试信息
+            print(f"应用配置: 接口={interface}, IP={ip}, 子网={subnet}, 网关={gateway}, DNS={dns}")
+            
+            # 设置IP地址、子网掩码和网关
+            if gateway:
+                # 如果有网关，使用完整命令
+                print(f"使用带网关的命令: netsh interface ipv4 set address name={interface} static {ip} {subnet} {gateway} 1")
+                subprocess.run(["netsh", "interface", "ipv4", "set", "address", 
+                              "name=" + interface, "static", ip, subnet, gateway, "1"], 
+                             check=True, capture_output=True)
+            else:
+                # 如果没有网关，使用不带网关的命令
+                print(f"使用不带网关的命令: netsh interface ipv4 set address name={interface} static {ip} {subnet}")
+                subprocess.run(["netsh", "interface", "ipv4", "set", "address", 
+                              "name=" + interface, "static", ip, subnet], 
+                             check=True, capture_output=True)
             
             # 设置DNS服务器
             if dns:
@@ -319,7 +457,9 @@ class NetworkConfigApp:
         if len(self.configs["profiles"]) > 10:
             self.configs["profiles"] = self.configs["profiles"][:10]
         
+        # 保存配置文件
         self.save_configs()
+        print(f"配置已保存: {config}")
     
     def create_tray_icon(self):
         # 创建系统托盘图标
@@ -632,6 +772,72 @@ class NetworkConfigApp:
         # 显示主窗口
         self.root.deiconify()
         self.root.lift()
+    
+    def apply_config_from_file(self):
+        # 从配置文件应用配置到UI界面
+        try:
+            import os
+            # 显示配置文件路径和内容
+            config_status = f"配置文件路径: {self.config_file}\n"
+            config_status += f"配置文件存在: {os.path.exists(self.config_file)}\n"
+            
+            if self.configs.get("profiles") and len(self.configs["profiles"]) > 0:
+                config_status += "找到配置文件中的profiles，开始应用...\n"
+                # 获取第一个配置（最新的配置）
+                first_profile = self.configs["profiles"][0]
+                config_status += f"第一个配置: {first_profile}\n"
+                
+                # 先应用非接口的配置值（IP、子网掩码、网关、DNS）
+                # IP地址
+                if "ip" in first_profile:
+                    ip_value = first_profile["ip"]
+                    config_status += f"设置IP地址: {ip_value}\n"
+                    self.ip_var.set(ip_value)
+                # 子网掩码
+                if "subnet" in first_profile:
+                    subnet_value = first_profile["subnet"]
+                    config_status += f"设置子网掩码: {subnet_value}\n"
+                    self.subnet_var.set(subnet_value)
+                # 网关
+                if "gateway" in first_profile:
+                    gateway_value = first_profile["gateway"]
+                    config_status += f"设置网关: {gateway_value}\n"
+                    self.gateway_var.set(gateway_value)
+                # DNS服务器
+                if "dns" in first_profile:
+                    dns_value = first_profile["dns"]
+                    config_status += f"设置DNS: {dns_value}\n"
+                    self.dns_var.set(dns_value)
+                
+                # 然后更新网络接口列表
+                config_status += "更新网络接口列表...\n"
+                self.update_interfaces()
+                
+                # 最后尝试设置接口值
+                # 获取当前接口列表
+                current_interfaces = self.interface_combo['values']
+                config_status += f"当前接口列表: {current_interfaces}\n"
+                
+                # 接口
+                if "interface" in first_profile and first_profile["interface"]:
+                    interface_value = first_profile["interface"]
+                    config_status += f"配置文件中的接口: {interface_value}\n"
+                    if interface_value in current_interfaces:
+                        config_status += "接口在列表中，设置为配置值\n"
+                        self.interface_var.set(interface_value)
+                    else:
+                        config_status += "接口不在列表中，使用默认值\n"
+            else:
+                config_status += "配置文件中没有profiles或profiles为空\n"
+            
+            # 显示配置加载状态
+            print(config_status)
+            # 不显示消息框，避免干扰用户
+        except Exception as e:
+            error_msg = f"应用配置到UI时发生错误: {e}"
+            print(error_msg)
+            # 不显示错误消息框，避免干扰用户
+            pass
 
 # 创建主窗口
 root = tk.Tk()
