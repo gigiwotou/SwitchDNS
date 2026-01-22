@@ -399,29 +399,106 @@ class NetworkConfigApp:
         except Exception as e:
             messagebox.showerror("错误", f"应用配置失败: {e}")
     
+    def get_actual_interfaces(self):
+        # 获取系统中实际的网络接口列表
+        interfaces = []
+        try:
+            # 使用netsh命令获取所有网络接口
+            result = subprocess.run(["netsh", "interface", "show", "interface"], 
+                                  capture_output=True, text=True, encoding='gbk', errors='ignore')
+            if result.stdout:
+                lines = result.stdout.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line and 'Name' not in line and '----' not in line:
+                        # 提取接口名称（从状态和类型后的部分）
+                        parts = line.split()
+                        if len(parts) >= 4:
+                            # 接口名称可能包含空格，从第4个部分开始
+                            interface_name = ' '.join(parts[3:])
+                            if interface_name and not (interface_name.startswith('{') and interface_name.endswith('}')):
+                                interfaces.append(interface_name)
+        except Exception as e:
+            print(f"获取接口列表失败: {e}")
+        return interfaces
+    
     def set_auto_config(self):
         # 设置自动获取配置
         interface = self.interface_var.get()
         
+        # 尝试获取实际的网络接口列表
+        actual_interfaces = self.get_actual_interfaces()
+        print(f"实际接口列表: {actual_interfaces}")
+        
+        # 如果没有选择接口，使用第一个实际接口
+        if not interface and actual_interfaces:
+            interface = actual_interfaces[0]
+            print(f"使用第一个实际接口: {interface}")
+        
         if not interface:
-            messagebox.showerror("错误", "请选择网络接口")
+            messagebox.showerror("错误", "请先在主窗口中选择网络接口")
             return
         
         try:
-            # 设置自动获取IP
-            subprocess.run(["netsh", "interface", "ipv4", "set", "address", 
-                          "name=" + interface, "source=dhcp"], 
-                         check=True, capture_output=True)
+            # 打印调试信息
+            print(f"尝试设置自动配置: 接口={interface}")
             
-            # 设置自动获取DNS
-            subprocess.run(["netsh", "interface", "ipv4", "set", "dns", 
-                          "name=" + interface, "source=dhcp"], 
-                         check=True, capture_output=True)
+            # 尝试使用管理员权限运行命令
+            success = False
+            error_message = ""
             
-            messagebox.showinfo("成功", "已设置为自动获取配置")
+            # 尝试使用powershell命令，可能具有更高的权限
+            try:
+                # 使用powershell命令设置自动获取配置
+                ps_cmd = f'netsh interface ipv4 set address name="{interface}" source=dhcp'
+                print(f"尝试PowerShell命令: {ps_cmd}")
+                # 使用powershell执行命令
+                subprocess.run(["powershell", "-Command", ps_cmd], check=True, capture_output=True)
+                success = True
+            except Exception as e4:
+                error_message += f"PowerShell命令失败: {e4}\n"
+                print(error_message)
+            
+            # 如果PowerShell失败，尝试使用runas提升权限
+            if not success:
+                try:
+                    # 尝试使用runas提升权限
+                    runas_cmd = f'netsh interface ipv4 set address name="{interface}" source=dhcp'
+                    print(f"尝试runas命令: {runas_cmd}")
+                    # 使用ShellExecuteW以管理员权限运行
+                    import ctypes
+                    ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f"/c {runas_cmd}", None, 1)
+                    success = True
+                    # 延迟一下，让命令有时间执行
+                    import time
+                    time.sleep(2)
+                except Exception as e5:
+                    error_message += f"runas命令失败: {e5}\n"
+                    print(error_message)
+            
+            # 如果IP设置成功，设置DNS
+            if success:
+                try:
+                    # 设置自动获取DNS
+                    dns_cmd = f'netsh interface ipv4 set dns name="{interface}" source=dhcp'
+                    print(f"执行DNS命令: {dns_cmd}")
+                    subprocess.run(["powershell", "-Command", dns_cmd], check=True, capture_output=True)
+                    
+                    messagebox.showinfo("成功", f"已为接口 '{interface}' 设置为自动获取配置")
+                except Exception as dns_error:
+                    print(f"DNS设置失败: {dns_error}")
+                    messagebox.showinfo("部分成功", f"IP设置成功，但DNS设置失败: {dns_error}\n\n接口: {interface}")
+            else:
+                # 所有方法都失败，显示详细错误信息
+                error_msg = f"设置自动配置失败: {error_message}\n\n接口: {interface}\n\n实际可用接口: {actual_interfaces}\n\n请尝试在主窗口中选择正确的网络接口后重试。"
+                print(error_msg)
+                messagebox.showerror("错误", error_msg)
             
         except Exception as e:
-            messagebox.showerror("错误", f"设置自动配置失败: {e}")
+            # 提供更详细的错误信息
+            error_msg = f"设置自动配置失败: {e}\n\n接口: {interface}\n\n实际可用接口: {actual_interfaces}"
+            print(error_msg)
+            messagebox.showerror("错误", error_msg)
     
     def save_config_to_history(self, interface, ip, subnet, gateway, dns):
         # 保存配置到历史记录
@@ -447,6 +524,44 @@ class NetworkConfigApp:
     def create_tray_icon(self):
         # 创建系统托盘图标
         try:
+            # 尝试使用pystray库（如果可用）
+            try:
+                from pystray import Icon, Menu, MenuItem
+                from PIL import Image, ImageDraw
+                
+                # 创建一个简单的图标
+                def create_image():
+                    width = 64
+                    height = 64
+                    image = Image.new('RGB', (width, height), color='white')
+                    draw = ImageDraw.Draw(image)
+                    draw.rectangle([16, 16, 48, 48], fill='black')
+                    return image
+                
+                # 创建菜单
+                menu = Menu(
+                    MenuItem('Show Main Window', self.root.deiconify),
+                    MenuItem('Auto DHCP', self.set_auto_config),
+                    MenuItem('Exit', self.on_close)
+                )
+                
+                # 创建系统托盘图标
+                icon = Icon('NetworkConfigTool', create_image(), 'Network Config Tool', menu)
+                
+                # 在后台运行
+                import threading
+                def run_icon():
+                    icon.run()
+                
+                threading.Thread(target=run_icon, daemon=True).start()
+                
+                self.tray_icon = icon
+                return
+            except ImportError:
+                # 如果pystray不可用，使用原来的方法
+                pass
+            
+            # 原来的系统托盘实现
             import win32api
             import win32gui
             import win32con
@@ -456,111 +571,63 @@ class NetworkConfigApp:
                 def __init__(self, app):
                     self.app = app
                     self.hwnd = None
-                    self.icon = None
                     self.nid = None
-                    # 尝试初始化系统托盘
-                    try:
-                        self.create_tray_icon()
-                    except Exception as e:
-                        # 只显示一次警告，避免干扰用户
-                        if not hasattr(self.app, 'tray_warning_shown'):
-                            messagebox.showwarning("警告", f"系统托盘功能暂时不可用: {e}")
-                            self.app.tray_warning_shown = True
+                    self.create_tray_icon()
                 
                 def create_tray_icon(self):
                     # 注册窗口类
-                    class_name = self.register_window_class()
-                    if not class_name:
-                        return
+                    wc = win32gui.WNDCLASS()
+                    wc.lpfnWndProc = self.window_proc
+                    wc.hInstance = win32api.GetModuleHandle(None)
+                    wc.lpszClassName = "NetworkConfigTray"
+                    wc.hCursor = win32gui.LoadCursor(0, win32con.IDC_ARROW)
+                    wc.hbrBackground = win32con.COLOR_WINDOW + 1
+                    class_atom = win32gui.RegisterClass(wc)
                     
                     # 创建窗口
-                    try:
-                        self.hwnd = win32gui.CreateWindow(
-                            class_name,
-                            "网络配置切换工具",
-                            win32con.WS_OVERLAPPED | win32con.WS_SYSMENU,
-                            win32con.CW_USEDEFAULT,
-                            win32con.CW_USEDEFAULT,
-                            win32con.CW_USEDEFAULT,
-                            win32con.CW_USEDEFAULT,
-                            0,
-                            0,
-                            win32api.GetModuleHandle(None),
-                            None
-                        )
-                    except Exception as e:
-                        if not hasattr(self.app, 'tray_warning_shown'):
-                            messagebox.showwarning("警告", f"创建窗口失败: {e}")
-                            self.app.tray_warning_shown = True
-                        return
+                    self.hwnd = win32gui.CreateWindow(
+                        class_atom,
+                        "Network Config Tool",
+                        win32con.WS_OVERLAPPED | win32con.WS_SYSMENU,
+                        0, 0, 1, 1,
+                        0, 0,
+                        win32api.GetModuleHandle(None),
+                        None
+                    )
                     
                     # 创建托盘图标
-                    try:
-                        # 使用更兼容的方式创建NOTIFYICONDATA
-                        # 避免使用字典形式，使用正确的参数格式
-                        icon = win32gui.LoadIcon(0, win32con.IDI_APPLICATION)
-                        
-                        # 尝试使用更简单的方式添加托盘图标
-                        # 注意：这里可能需要根据pywin32版本调整
-                        try:
-                            # 方法1：使用正确的NOTIFYICONDATA结构
-                            nid = (self.hwnd, 100, win32gui.NIF_ICON | win32gui.NIF_MESSAGE | win32gui.NIF_TIP, 
-                                   win32con.WM_USER + 100, icon, "网络配置切换工具")
-                            win32gui.Shell_NotifyIcon(win32gui.NIM_ADD, nid)
-                            self.nid = nid
-                        except Exception as e1:
-                            try:
-                                # 方法2：使用更简单的参数格式
-                                win32gui.Shell_NotifyIcon(win32gui.NIM_ADD, {
-                                    'hWnd': self.hwnd,
-                                    'uID': 100,
-                                    'uFlags': win32gui.NIF_ICON | win32gui.NIF_MESSAGE | win32gui.NIF_TIP,
-                                    'uCallbackMessage': win32con.WM_USER + 100,
-                                    'hIcon': icon,
-                                    'szTip': "网络配置切换工具"
-                                })
-                            except Exception as e2:
-                                raise Exception(f"托盘图标创建失败: {e1}, {e2}")
-                        
-                        # 开始消息循环
-                        import threading
-                        self.message_thread = threading.Thread(target=self.pump_messages)
-                        self.message_thread.daemon = True
-                        self.message_thread.start()
-                    except Exception as e:
-                        if not hasattr(self.app, 'tray_warning_shown'):
-                            messagebox.showwarning("警告", f"系统托盘图标创建失败: {e}")
-                            self.app.tray_warning_shown = True
-                
-                def register_window_class(self):
-                    # 注册窗口类
-                    try:
-                        # 使用正确的WNDCLASS结构
-                        wc = win32gui.WNDCLASS()
-                        wc.lpfnWndProc = self.window_proc
-                        wc.hInstance = win32api.GetModuleHandle(None)
-                        wc.lpszClassName = "NetworkConfigTray"
-                        wc.hCursor = win32gui.LoadCursor(0, win32con.IDC_ARROW)
-                        wc.hbrBackground = win32con.COLOR_WINDOW + 1
-                        return win32gui.RegisterClass(wc)
-                    except Exception as e:
-                        if not hasattr(self.app, 'tray_warning_shown'):
-                            messagebox.showwarning("警告", f"窗口类注册失败: {e}")
-                            self.app.tray_warning_shown = True
-                        return None
+                    icon = win32gui.LoadIcon(0, win32con.IDI_APPLICATION)
+                    nid = (self.hwnd, 100, win32gui.NIF_ICON | win32gui.NIF_MESSAGE | win32gui.NIF_TIP,
+                           win32con.WM_USER + 100, icon, "Network Config Tool")
+                    win32gui.Shell_NotifyIcon(win32gui.NIM_ADD, nid)
+                    self.nid = nid
+                    
+                    # 启动消息循环
+                    import threading
+                    self.message_thread = threading.Thread(target=self.pump_messages)
+                    self.message_thread.daemon = True
+                    self.message_thread.start()
                 
                 def window_proc(self, hwnd, msg, wparam, lparam):
-                    # 窗口消息处理
                     if msg == win32con.WM_USER + 100:
                         if lparam == win32con.WM_RBUTTONUP:
-                            # 右键点击系统托盘图标
+                            # 右键点击，显示菜单
                             self.show_context_menu()
                         elif lparam == win32con.WM_LBUTTONDBLCLK:
-                            # 双击系统托盘图标
+                            # 双击，显示主窗口
                             self.app.root.deiconify()
+                    elif msg == win32con.WM_COMMAND:
+                        # 处理菜单命令
+                        cmd = wparam
+                        if cmd == 1:
+                            self.app.root.deiconify()
+                        elif cmd == 2:
+                            self.app.set_auto_config()
+                        elif cmd == 99:
+                            self.app.on_close()
                     elif msg == win32con.WM_DESTROY:
                         try:
-                            if hasattr(self, 'nid') and self.nid:
+                            if self.nid:
                                 win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self.nid)
                         except:
                             pass
@@ -573,98 +640,40 @@ class NetworkConfigApp:
                         # 创建菜单
                         menu = win32gui.CreatePopupMenu()
                         
-                        # 添加菜单项 - 确保所有字符串都是有效的
-                        try:
-                            win32gui.AppendMenu(menu, win32con.MF_STRING, 1, "显示主窗口")
-                            win32gui.AppendMenu(menu, win32con.MF_STRING, 2, "恢复自动获取")
-                            # 添加分隔线 - 使用正确的参数
-                            win32gui.AppendMenu(menu, win32con.MF_SEPARATOR, 0, "")
-                        except Exception as e:
-                            messagebox.showwarning("警告", f"添加菜单项失败: {e}")
-                            return
-                        
-                        # 添加快速配置选项
-                        try:
-                            if self.app.configs.get("profiles"):
-                                win32gui.AppendMenu(menu, win32con.MF_STRING, 3, "快速配置")
-                                submenu = win32gui.CreatePopupMenu()
-                                for i, profile in enumerate(self.app.configs["profiles"][:5]):
-                                    # 确保profile["name"]是有效的字符串
-                                    profile_name = profile.get("name", f"配置{i+1}")
-                                    if profile_name is None:
-                                        profile_name = f"配置{i+1}"
-                                    # 确保profile_name是字符串类型
-                                    profile_name = str(profile_name)
-                                    win32gui.AppendMenu(submenu, win32con.MF_STRING, 10 + i, profile_name)
-                                # 确保submenu是有效的
-                                if submenu:
-                                    win32gui.AppendMenu(menu, win32con.MF_POPUP, submenu, "快速配置")
-                        except Exception as e:
-                            messagebox.showwarning("警告", f"添加快速配置菜单失败: {e}")
-                        
-                        try:
-                            # 添加分隔线 - 使用正确的参数
-                            win32gui.AppendMenu(menu, win32con.MF_SEPARATOR, 0, "")
-                            win32gui.AppendMenu(menu, win32con.MF_STRING, 99, "退出")
-                        except Exception as e:
-                            messagebox.showwarning("警告", f"添加退出菜单项失败: {e}")
-                            return
+                        # 添加菜单项 - 使用完整的中文文本
+                        win32gui.AppendMenu(menu, win32con.MF_STRING, 1, "显示主窗口")
+                        win32gui.AppendMenu(menu, win32con.MF_STRING, 2, "自动获取配置")
+                        win32gui.AppendMenu(menu, win32con.MF_SEPARATOR, 0, "")
+                        win32gui.AppendMenu(menu, win32con.MF_STRING, 99, "退出程序")
                         
                         # 获取鼠标位置
                         pos = win32gui.GetCursorPos()
                         
-                        # 显示菜单并获取用户选择
-                        try:
-                            win32gui.SetForegroundWindow(self.hwnd)
-                            cmd = win32gui.TrackPopupMenu(
-                                menu,
-                                win32con.TPM_RIGHTALIGN | win32con.TPM_BOTTOMALIGN | win32con.TPM_RETURNCMD,
-                                pos[0],
-                                pos[1],
-                                0,
-                                self.hwnd,
-                                None
-                            )
-                        except Exception as e:
-                            messagebox.showwarning("警告", f"显示菜单失败: {e}")
-                            return
+                        # 显示菜单 - 使用TPM_RETURNCMD标志确保菜单正常显示
+                        win32gui.SetForegroundWindow(self.hwnd)
+                        result = win32gui.TrackPopupMenu(
+                            menu,
+                            win32con.TPM_LEFTALIGN | win32con.TPM_RETURNCMD,
+                            pos[0],
+                            pos[1],
+                            0,
+                            self.hwnd,
+                            None
+                        )
                         
-                        # 处理菜单命令
-                        if cmd == 1:
-                            # 显示主窗口
+                        # 直接处理菜单命令
+                        if result == 1:
                             self.app.root.deiconify()
-                        elif cmd == 2:
-                            # 恢复自动获取
+                        elif result == 2:
                             self.app.set_auto_config()
-                        elif cmd == 99:
-                            # 退出程序
+                        elif result == 99:
                             self.app.on_close()
-                        elif cmd >= 10:
-                            # 快速配置选项
-                            profile_index = cmd - 10
-                            if profile_index < len(self.app.configs.get("profiles", [])):
-                                profile = self.app.configs["profiles"][profile_index]
-                                # 应用快速配置
-                                self.app.interface_var.set(profile.get("interface", ""))
-                                self.app.ip_var.set(profile.get("ip", ""))
-                                self.app.subnet_var.set(profile.get("subnet", ""))
-                                self.app.gateway_var.set(profile.get("gateway", ""))
-                                self.app.dns_var.set(profile.get("dns", ""))
-                                self.app.apply_config()
-                                # 显示主窗口
-                                self.app.root.deiconify()
+                        
+                        # 确保菜单消息被处理
+                        win32gui.PostMessage(self.hwnd, win32con.WM_NULL, 0, 0)
+                        
                     except Exception as e:
-                        # 显示错误信息以便调试
-                        messagebox.showwarning("警告", f"显示上下文菜单失败: {e}")
-                
-                def get_default_icon(self):
-                    # 获取默认图标 - 使用应用程序默认图标
-                    try:
-                        # 使用默认应用程序图标
-                        return win32gui.LoadIcon(0, win32con.IDI_APPLICATION)
-                    except:
-                        # 如果失败，返回None
-                        return None
+                        print(f"显示菜单失败: {e}")
                 
                 def pump_messages(self):
                     # 消息循环
@@ -673,13 +682,9 @@ class NetworkConfigApp:
                     except:
                         pass
             
-            # 尝试创建系统托盘图标
-            try:
-                self.tray_icon = TrayIcon(self)
-            except Exception as e:
-                if not hasattr(self, 'tray_warning_shown'):
-                    messagebox.showwarning("警告", f"系统托盘功能初始化失败: {e}")
-                    self.tray_warning_shown = True
+            # 创建托盘图标
+            self.tray_icon = TrayIcon(self)
+            
         except ImportError as e:
             if not hasattr(self, 'tray_warning_shown'):
                 messagebox.showwarning("警告", f"系统托盘功能需要pywin32库: {e}")
