@@ -1,0 +1,7 @@
+# 网络配置切换工具依赖
+# pywin32 用于Windows系统托盘功能
+# netifaces 用于获取网络接口信息
+# psutil 用于系统信息
+pywin32
+netifaces
+psutil

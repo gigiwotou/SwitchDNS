@@ -1,0 +1,20 @@
+# 编译输出目录
+build/
+dist/
+
+# 日志文件
+debug_log.txt
+
+# 配置文件
+network_configs.json
+
+# PyInstaller生成的spec文件
+*.spec
+
+# 临时文件
+*.pyc
+__pycache__/
+
+# 系统文件
+Thumbs.db
+.DS_Store
