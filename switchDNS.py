@@ -538,11 +538,11 @@ class NetworkConfigApp:
                     draw.rectangle([16, 16, 48, 48], fill='black')
                     return image
                 
-                # 创建菜单
+                # 创建菜单 - 使用中文文本
                 menu = Menu(
-                    MenuItem('Show Main Window', self.root.deiconify),
-                    MenuItem('Auto DHCP', self.set_auto_config),
-                    MenuItem('Exit', self.on_close)
+                    MenuItem('显示主窗口', self.root.deiconify),
+                    MenuItem('自动获取配置', self.set_auto_config),
+                    MenuItem('退出程序', self.on_close)
                 )
                 
                 # 创建系统托盘图标
